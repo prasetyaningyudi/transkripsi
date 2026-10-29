@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Transkripsi Audio/Video — Bahasa Indonesia</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-50 min-h-screen text-slate-800">
+  <div class="max-w-3xl mx-auto p-6">
+    <header class="mb-8">
+      <h1 class="text-3xl font-bold text-indigo-700">Transkripsi Audio/Video</h1>
+      <p class="text-slate-500 mt-1">Bahasa Indonesia • Whisper Lokal / OpenAI Cloud</p>
+    </header>
+
+    <div class="bg-white rounded-2xl shadow p-6 space-y-6">
+      <div id="dropzone" class="border-2 border-dashed border-slate-300 rounded-xl p-10 text-center cursor-pointer hover:border-indigo-400 transition">
+        <div class="text-5xl mb-3">🎧</div>
+        <p class="font-medium">Klik atau tarik file ke sini</p>
+        <p class="text-sm text-slate-400 mt-1">Audio: mp3, wav, m4a, flac, ogg • Video: mp4, mkv, mov, avi, webm</p>
+        <input id="file" type="file" accept="audio/*,video/*,.mp3,.wav,.m4a,.flac,.ogg,.opus,.aac,.mp4,.mkv,.mov,.avi,.webm" class="hidden" />
+      </div>
+      <div id="file-info" class="hidden text-sm bg-slate-100 rounded-lg p-3 flex justify-between items-center">
+        <span id="file-name" class="truncate font-medium"></span>
+        <button id="clear-file" class="text-slate-400 hover:text-red-500 ml-3">✕</button>
+      </div>
+
+      <div id="player-wrap" class="hidden space-y-2">
+        <p class="text-sm font-medium text-slate-600">▶ Putar media untuk pengecekan</p>
+        <audio id="player-audio" controls class="w-full hidden"></audio>
+        <video id="player-video" controls class="w-full rounded-lg bg-black hidden"></video>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div>
+          <label class="block text-sm font-medium mb-1">Engine</label>
+          <select id="engine" class="w-full border rounded-lg px-3 py-2">
+            <option value="whisper-local">Whisper Lokal (offline)</option>
+            <option value="openai">OpenAI Cloud</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">Model (lokal)</label>
+          <select id="model" class="w-full border rounded-lg px-3 py-2">
+            <option value="tiny">tiny — cepat, kurang akurat</option>
+            <option value="base">base — cepat</option>
+            <option value="small" selected>small — seimbang</option>
+            <option value="medium">medium — akurat</option>
+            <option value="large-v3">large-v3 — paling akurat (berat)</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium mb-1">Bahasa</label>
+          <select id="language" class="w-full border rounded-lg px-3 py-2">
+            <option value="id" selected>Bahasa Indonesia (id)</option>
+            <option value="auto">Deteksi otomatis</option>
+            <option value="en">English (en)</option>
+          </select>
+        </div>
+      </div>
+
+      <div id="api-key-row" class="hidden">
+        <label class="block text-sm font-medium mb-1">OpenAI API Key</label>
+        <input id="api-key" type="password" placeholder="sk-..." class="w-full border rounded-lg px-3 py-2" />
+        <p class="text-xs text-slate-400 mt-1">Key hanya dikirim ke server lokal kamu, tidak disimpan.</p>
+      </div>
+
+      <button id="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white font-semibold rounded-xl py-3 transition" disabled>
+        Transkrip Sekarang
+      </button>
+
+      <div id="status" class="hidden">
+        <div class="flex justify-between text-sm mb-1">
+          <span id="status-msg" class="text-slate-600">Menunggu...</span>
+          <span id="status-pct" class="font-mono text-indigo-600">0%</span>
+        </div>
+        <div class="w-full bg-slate-200 rounded-full h-3 overflow-hidden">
+          <div id="progress-bar" class="bg-indigo-600 h-3 transition-all duration-500" style="width:0%"></div>
+        </div>
+      </div>
+
+      <div id="error-box" class="hidden bg-red-50 text-red-700 rounded-lg p-4 text-sm"></div>
+
+      <div id="result" class="hidden space-y-4">
+        <div class="flex flex-wrap gap-3">
+          <button id="dl-txt" class="bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium px-4 py-2 rounded-lg">⬇ TXT</button>
+          <button id="dl-srt" class="bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium px-4 py-2 rounded-lg">⬇ SRT</button>
+          <button id="dl-json" class="bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium px-4 py-2 rounded-lg">⬇ JSON</button>
+        </div>
+        <div>
+          <h3 class="font-semibold mb-2">Transkrip (klik segmen untuk lompat ke waktu)</h3>
+          <div id="segments" class="relative bg-slate-100 rounded-lg max-h-72 overflow-auto divide-y divide-slate-200"></div>
+          <pre id="preview" class="hidden bg-slate-100 rounded-lg p-4 text-sm max-h-64 overflow-auto whitespace-pre-wrap"></pre>
+        </div>
+      </div>
+    </div>
+
+    <footer class="text-center text-xs text-slate-400 mt-6">ffmpeg diperlukan untuk file video. Whisper lokal berjalan offline di komputer kamu.</footer>
+  </div>
+
+  <div id="dl-modal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+    <div class="bg-white rounded-xl p-6 w-96 space-y-4 shadow-2xl">
+      <h3 class="font-bold text-lg">Download <span id="dl-fmt-label" class="text-indigo-600"></span></h3>
+      <div>
+        <label class="block text-sm font-medium mb-1">Maksimal kata per timestamp</label>
+        <input id="dl-max-words" type="number" value="8" min="1" max="50" class="w-full border rounded-lg px-3 py-2" />
+        <p class="text-xs text-slate-400 mt-1">Contoh: 8 → tiap subtitle maksimal 8 kata</p>
+      </div>
+      <label class="flex items-center gap-2 text-sm">
+        <input id="dl-merge" type="checkbox" checked class="rounded" />
+        Gabung segmen kecil (hindari subtitle 1–2 kata)
+      </label>
+      <label class="flex items-center gap-2 text-sm">
+        <input id="dl-nolimit" type="checkbox" class="rounded" />
+        Tanpa batas (format asli)
+      </label>
+      <div class="flex gap-2 justify-end pt-2">
+        <button id="dl-cancel" class="px-4 py-2 rounded-lg border text-slate-600 hover:bg-slate-50">Batal</button>
+        <button id="dl-ok" class="px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700">Download</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let selectedFile = null;
+let pollTimer = null;
+let currentJobId = null;
+let dlFmt = null;
+
+const dz = $("dropzone"), fileInput = $("file");
+dz.onclick = () => fileInput.click();
+dz.ondragover = (e) => { e.preventDefault(); dz.classList.add("border-indigo-400", "bg-indigo-50"); };
+dz.ondragleave = () => dz.classList.remove("border-indigo-400", "bg-indigo-50");
+dz.ondrop = (e) => {
+  e.preventDefault(); dz.classList.remove("border-indigo-400", "bg-indigo-50");
+  if (e.dataTransfer.files.length) setFile(e.dataTransfer.files[0]);
+};
+fileInput.onchange = () => { if (fileInput.files.length) setFile(fileInput.files[0]); };
+
+function setFile(f) {
+  selectedFile = f;
+  $("file-name").textContent = f.name + " (" + (f.size/1048576).toFixed(1) + " MB)";
+  $("file-info").classList.remove("hidden");
+  validate();
+}
+$("clear-file").onclick = (e) => {
+  e.stopPropagation();
+  selectedFile = null; fileInput.value = "";
+  $("file-info").classList.add("hidden");
+  hidePlayer();
+  validate();
+};
+
+$("engine").onchange = () => {
+  const cloud = $("engine").value === "openai";
+  $("api-key-row").classList.toggle("hidden", !cloud);
+  $("model").disabled = cloud;
+  validate();
+};
+$("api-key").oninput = validate;
+
+function validate() {
+  const needKey = $("engine").value === "openai" && !$("api-key").value.trim();
+  $("submit").disabled = !selectedFile || needKey;
+}
+
+function isVideoName(name) {
+  return /\.(mp4|mkv|mov|avi|webm|flv|wmv|m4v)$/i.test(name);
+}
+
+function showPlayer(jobId, kind) {
+  const url = `/api/jobs/${jobId}/media`;
+  const audio = $("player-audio"), video = $("player-video");
+  if (kind === "video") {
+    video.src = url; video.classList.remove("hidden"); audio.classList.add("hidden");
+  } else {
+    audio.src = url; audio.classList.remove("hidden"); video.classList.add("hidden");
+  }
+  $("player-wrap").classList.remove("hidden");
+}
+
+function hidePlayer() {
+  const audio = $("player-audio"), video = $("player-video");
+  audio.pause(); video.pause();
+  audio.removeAttribute("src"); video.removeAttribute("src");
+  $("player-wrap").classList.add("hidden");
+  audio.classList.add("hidden"); video.classList.add("hidden");
+}
+
+function getPlayer() {
+  const video = $("player-video");
+  return !video.classList.contains("hidden") ? video : $("player-audio");
+}
+
+function fmtTime(sec) {
+  sec = Math.max(0, Math.floor(sec));
+  const m = Math.floor(sec / 60), s = sec % 60;
+  return `${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`;
+}
+
+function esc(s) {
+  return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+
+let lastActiveSeg = null;
+
+function renderSegments(segments) {
+  const cont = $("segments");
+  cont.innerHTML = "";
+  lastActiveSeg = null;
+  if (!segments || !segments.length) { $("preview").classList.remove("hidden"); return; }
+  segments.forEach((seg) => {
+    const btn = document.createElement("button");
+    btn.className = "w-full text-left px-3 py-2 flex gap-3 border-l-4 border-transparent hover:bg-indigo-50 transition";
+    btn.dataset.start = seg.start;
+    btn.innerHTML =
+      `<span class="text-xs text-indigo-600 font-mono shrink-0 pt-0.5">${fmtTime(seg.start)}</span>` +
+      `<span class="text-sm">${esc(seg.text)}</span>`;
+    btn.onclick = () => {
+      const p = getPlayer();
+      p.currentTime = seg.start;
+      p.play().catch(() => {});
+    };
+    cont.appendChild(btn);
+  });
+}
+
+function updateActiveSegment(time) {
+  const cont = $("segments");
+  const btns = cont.querySelectorAll("button");
+  let active = null;
+  for (const b of btns) {
+    if (time + 0.1 >= parseFloat(b.dataset.start)) active = b;
+    else break;
+  }
+  if (active === lastActiveSeg) return;
+  if (lastActiveSeg) {
+    lastActiveSeg.classList.remove("bg-indigo-100", "border-indigo-600");
+    lastActiveSeg.classList.add("border-transparent");
+  }
+  lastActiveSeg = active;
+  if (!active) return;
+  active.classList.add("bg-indigo-100", "border-indigo-600");
+  active.classList.remove("border-transparent");
+  const bt = active.offsetTop;
+  const bb = bt + active.offsetHeight;
+  if (bt < cont.scrollTop || bb > cont.scrollTop + cont.clientHeight) {
+    cont.scrollTop = bt;
+  }
+}
+
+["player-audio", "player-video"].forEach((id) => {
+  $(id).addEventListener("timeupdate", () => updateActiveSegment($(id).currentTime));
+});
+
+function showStatus(pct, msg) {
+  $("status").classList.remove("hidden");
+  $("progress-bar").style.width = (pct*100).toFixed(0) + "%";
+  $("status-pct").textContent = (pct*100).toFixed(0) + "%";
+  if (msg) $("status-msg").textContent = msg;
+}
+function showError(msg) {
+  $("error-box").textContent = msg;
+  $("error-box").classList.remove("hidden");
+  $("result").classList.add("hidden");
+  $("submit").disabled = false;
+}
+
+$("submit").onclick = async () => {
+  $("submit").disabled = true;
+  $("error-box").classList.add("hidden");
+  $("result").classList.add("hidden");
+  hidePlayer();
+  showStatus(0.02, "Mengunggah...");
+
+  const fd = new FormData();
+  fd.append("file", selectedFile);
+  fd.append("engine", $("engine").value);
+  fd.append("model_size", $("model").value);
+  fd.append("language", $("language").value);
+  fd.append("openai_api_key", $("api-key").value.trim());
+
+  try {
+    const res = await fetch("/api/transcribe", { method: "POST", body: fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Gagal memulai.");
+    currentJobId = data.job_id;
+    showPlayer(currentJobId, isVideoName(selectedFile.name) ? "video" : "audio");
+    poll(currentJobId);
+  } catch (err) { showError(err.message); }
+};
+
+function poll(jobId) {
+  clearInterval(pollTimer);
+  pollTimer = setInterval(async () => {
+    try {
+      const res = await fetch("/api/jobs/" + jobId);
+      const job = await res.json();
+      if (!res.ok) throw new Error(job.detail || "Job tidak ditemukan.");
+      showStatus(job.progress || 0, job.message);
+      if (job.status === "done") {
+        clearInterval(pollTimer);
+        $("status-msg").textContent = "Selesai ✓ (bahasa terdeteksi: " + (job.detected_language||"?") + ", " + job.segment_count + " segmen)";
+        renderSegments(job.segments);
+        if (!job.segments || !job.segments.length) {
+          $("preview").textContent = job.preview || "(kosong)";
+          $("preview").classList.remove("hidden");
+        } else {
+          $("preview").classList.add("hidden");
+        }
+        $("result").classList.remove("hidden");
+        $("submit").disabled = false;
+      } else if (job.status === "error") {
+        clearInterval(pollTimer);
+        showError(job.message || "Terjadi kesalahan.");
+      }
+    } catch (err) {
+      clearInterval(pollTimer);
+      showError(err.message);
+    }
+  }, 1500);
+}
+
+$("dl-txt").onclick = () => {
+  window.location.href = `/api/jobs/${currentJobId}/download/txt`;
+};
+
+function openDlModal(fmt) {
+  dlFmt = fmt;
+  $("dl-fmt-label").textContent = fmt.toUpperCase();
+  $("dl-modal").classList.remove("hidden");
+}
+$("dl-srt").onclick = () => openDlModal("srt");
+$("dl-json").onclick = () => openDlModal("json");
+$("dl-cancel").onclick = () => $("dl-modal").classList.add("hidden");
+$("dl-modal").onclick = (e) => { if (e.target === $("dl-modal")) $("dl-modal").classList.add("hidden"); };
+
+$("dl-nolimit").onchange = () => {
+  const off = $("dl-nolimit").checked;
+  $("dl-max-words").disabled = off;
+  $("dl-merge").disabled = off;
+};
+
+$("dl-ok").onclick = () => {
+  const noLimit = $("dl-nolimit").checked;
+  const mw = noLimit ? 0 : Math.min(50, Math.max(1, parseInt($("dl-max-words").value) || 8));
+  const merge = $("dl-merge").checked ? 1 : 0;
+  window.location.href = `/api/jobs/${currentJobId}/download/${dlFmt}?max_words=${mw}&merge=${merge}`;
+  $("dl-modal").classList.add("hidden");
+};
+</script>
+</body>
+</html>
